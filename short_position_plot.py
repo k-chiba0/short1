@@ -6,7 +6,7 @@ from matplotlib import gridspec
 from pathlib import Path
 import os
 
-# フォルダ設定
+# フォルダ設定 テスト
 data_dir = Path("D:/short/data")
 csv_dir = Path("D:/short/csv")
 chart_dir = Path("D:/short/Chart")
