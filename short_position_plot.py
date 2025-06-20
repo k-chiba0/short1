@@ -18,6 +18,8 @@ target_code = input("銘柄コードを入力してください（例：5253）:
 # 総合計をグラフに含めるか確認
 include_total = input("空売り総合計線をグラフに表示しますか？ (y/n): ").strip().lower()
 
+show_top5 = input("上位5社のみ表示しますか？ (y/n): ").strip().lower()
+
 # --- Step 1: .xls -> .xlsx 変換 ---
 for file in data_dir.glob("*.xls"):
     try:
@@ -39,17 +41,22 @@ for file in data_dir.glob("*.xlsx"):
         data = df.iloc[start_row:, :].dropna(subset=[1, 2, 3, 5, 11])  # B, C, D, F, L列に対応
 
         for _, row in data.iterrows():
-            if str(row[2]).strip() == target_code:  # C列（銘柄コード）
-                try:
-                    calc_date_row = pd.to_datetime(row[1])  # B列（計算年月日）
-                    records.append({
-                        "date": calc_date_row,
-                        "institution": str(row[5]).strip(),  # F列（機関名）
-                        "amount": float(row[11]),           # L列（空売り株数）
-                        "stock_name": str(row[3]).strip()[:5]  # D列（銘柄名）
+           if str(row[2]).strip() == target_code:  # C列（銘柄コード）
+               try:
+                   calc_date_row = pd.to_datetime(row[1])  # B列（計算年月日）
+                   k_value = float(row[10])
+                   l_value = float(row[11])
+                   if k_value < 0.005:
+                       l_value = 0
+                   amount = l_value
+                   records.append({
+                       "date": calc_date_row,
+                       "institution": str(row[5]).strip(),  # F列（機関名）
+                       "amount": amount,
+                       "stock_name": str(row[3]).strip()[:5]  # D列（銘柄名）
                     })
-                except Exception as e:
-                    print(f"{file.name} 行 {row.name} で日付変換エラー: {e}")
+               except Exception as e:
+                   print(f"{file.name} 行 {row.name} で日付変換エラー: {e}")
 
     except Exception as e:
         print(f"{file.name} の読み込み中にエラー: {e}")
@@ -59,8 +66,12 @@ df_all = pd.DataFrame(records)
 grouped = df_all.groupby(["date", "institution"])["amount"].sum().reset_index()
 pivot_df = grouped.pivot(index="date", columns="institution", values="amount")
 
-# 残高を前日から補完（直前の値で埋める）
-pivot_df = pivot_df.sort_index().ffill().fillna(0)
+# 補完方法を修正：0はそのまま、欠損は直前値、初日など全体欠損は0
+pivot_df = pivot_df.sort_index()
+
+
+
+pivot_df = pivot_df.fillna(method="ffill").fillna(0)
 
 # 合計列を追加
 pivot_df_with_total = pivot_df.copy()
@@ -97,8 +108,15 @@ gs = gridspec.GridSpec(3, 1, height_ratios=[2, 1, 1])
 # 1: 空売り残高推移
 ax1 = fig.add_subplot(gs[0])
 
-# 総合計を表示するかどうかで分岐
-columns_to_plot = pivot_df_with_total.columns if include_total == 'y' else pivot_df.columns
+# columns_to_plot 決定
+if show_top5 == 'y':
+    last_day = pivot_df_with_total.index[-1]
+    top5 = pivot_df_with_total.loc[last_day].drop('合計', errors='ignore').sort_values(ascending=False).head(5).index.tolist()
+    columns_to_plot = top5
+    if include_total == 'y':
+        columns_to_plot = top5 + ['合計']
+else:
+    columns_to_plot = pivot_df_with_total.columns if include_total == 'y' else pivot_df.columns
 
 for col in columns_to_plot:
     ax1.plot(pivot_df_with_total.index, pivot_df_with_total[col], label=col)
